@@ -84,6 +84,19 @@
       <button class="btn ghost" id="downloadSummaryBtn" type="button">⬇️ دانلود خلاصه</button>
       <span class="muted">پس از پر کردن فرم، اطلاع بده یا خلاصه را دانلود و برای ادمین ارسال کن.</span>
     </div>
+
+    <!-- سوییچ نوع پیام واتساپ -->
+    <div class="row-actions" style="margin-top:8px">
+      <label class="muted" style="display:flex;align-items:center;gap:6px">
+        <input id="sendModeMinimal" type="radio" name="sendMode" value="minimal" checked />
+        ارسال «پیام مختصر» (پیشنهادی) — بدون مبالغ/خروجی
+      </label>
+      <label class="muted" style="display:flex;align-items:center;gap:6px">
+        <input id="sendModeFull" type="radio" name="sendMode" value="full" />
+        ارسال «پیام کامل» (شامل خلاصه و ارقام)
+      </label>
+    </div>
+
     <div id="waFallback"></div>
   </section>
 
@@ -195,8 +208,25 @@ function compute(){
   if(el) el.addEventListener("input", compute);
 });
 
-/* ===== خلاصه واتساپ شکیل ===== */
-function buildSummary(){
+/* ===== پیام‌های واتساپ ===== */
+function buildSummaryMinimal(){
+  const company = (document.getElementById("companyName").value || "-").trim();
+  const license = document.getElementById("licenseDate").value || "-";
+  const ts = new Date().toISOString().slice(0,19).replace('T',' ');
+  return [
+    "🌐 *rastaval | درخواست بررسی ارزش شرکت*",
+    "",
+    `🏢 *نام شرکت:* ${company}`,
+    `🗓️ *اولین پروانه:* ${license}`,
+    "",
+    "ℹ️ این یک پیامِ اطلاع‌رسانی است تا لینک پرداخت/تأیید ارسال شود.",
+    "پس از تأیید پرداخت، لینک فعال‌سازی نتایج برای شرکت شما ارسال می‌گردد.",
+    "—",
+    `🆔 شناسه درخواست: ${ts}`
+  ].join("\n");
+}
+
+function buildSummaryFull(){
   const toFa = n => (isNaN(+n) ? "-" : (+n).toLocaleString("fa-IR"));
   const toman = n => (isNaN(+n) ? "-" : toFa(n) + " تومان");
 
@@ -250,15 +280,18 @@ function buildSummary(){
 document.getElementById("notifyAdminBtn").addEventListener("click", ()=>{
   try { compute(); } catch(e) {}
 
-  const text  = encodeURIComponent(buildSummary());
+  const mode = document.getElementById("sendModeFull").checked ? "full" : "minimal";
+  const message = mode === "full" ? buildSummaryFull() : buildSummaryMinimal();
+
+  const text  = encodeURIComponent(message);
   const phone = ADMIN_WHATSAPP;                 // فقط رقم؛ بدون + و 00
   const ua    = navigator.userAgent || "";
   const isIOS = /iPad|iPhone|iPod/.test(ua);
   const inApp = /(FBAN|FBAV|Instagram|Line|Twitter|Telegram)/i.test(ua);
 
-  const deep   = `whatsapp://send?phone=${phone}&text=${text}`;                    // 1) deep link
-  const webApi = `https://api.whatsapp.com/send?phone=${phone}&text=${text}`;      // 2) وب API
-  const waMe   = `https://wa.me/${phone}?text=${text}`;                             // 3) wa.me
+  const deep   = `whatsapp://send?phone=${phone}&text=${text}`;   // 1) deep link
+  const webApi = `https://api.whatsapp.com/send?phone=${phone}&text=${text}`; // 2) وب API
+  const waMe   = `https://wa.me/${phone}?text=${text}`;            // 3) wa.me
 
   function openViaHiddenLink(url){
     const a=document.createElement("a");
@@ -280,7 +313,7 @@ document.getElementById("notifyAdminBtn").addEventListener("click", ()=>{
       host.dataset.shown = "1";
       host.style.cssText = "margin-top:10px;padding:10px;border:1px dashed #cbd5e1;border-radius:8px;background:#fff";
       host.innerHTML = `<div class="muted">اگر واتساپ باز نشد، این لینک را بزنید: <a href="${webApi}" style="color:#0C69B0">باز کردن واتساپ</a></div>`;
-      try{ const plain = buildSummary(); navigator.clipboard && navigator.clipboard.writeText(plain); }catch(_){}
+      try{ navigator.clipboard && navigator.clipboard.writeText(message); }catch(_){}
     }
   }, 1200);
 });
@@ -288,7 +321,7 @@ document.getElementById("notifyAdminBtn").addEventListener("click", ()=>{
 /* ===== دانلود خلاصه (txt) ===== */
 document.getElementById("downloadSummaryBtn").addEventListener("click", ()=>{
   try{ compute(); }catch(e){}
-  const text = buildSummary();
+  const text = (document.getElementById("sendModeFull").checked ? buildSummaryFull() : buildSummaryMinimal());
   const cn = (document.getElementById("companyName").value || "company").replace(/\s+/g,"_");
   const blob = new Blob([text],{type:"text/plain;charset=utf-8"});
   const url = URL.createObjectURL(blob);
