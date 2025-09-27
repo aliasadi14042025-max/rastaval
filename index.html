@@ -28,6 +28,7 @@
     .sum{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px;border:1px solid var(--border);border-radius:10px;background:#FAFCFF;margin-top:8px}
     .locked{background:#F8FAFC;border:2px dashed var(--border);color:#334155;padding:18px;border-radius:12px;text-align:center}
     .muted{color:var(--muted);font-size:12px}
+    .notice{background:#FFF7ED;border:1px solid #FED7AA;border-radius:12px;padding:10px;margin-bottom:8px}
   </style>
 </head>
 <body>
@@ -38,6 +39,10 @@
 <main>
   <!-- 1) Inputs -->
   <section id="inputs">
+    <div class="notice muted">
+      لینک عمومی فقط برای ورود اطلاعات است. دسترسی به خروجی‌ها پس از پرداخت و فقط با لینکی که شامل <code>?approve=نام‌شرکت&amp;key=توکن</code> باشد فعال می‌شود.
+    </div>
+
     <h2>۱) ورود اطلاعات</h2>
     <label>نام شرکت
       <input id="companyName" type="text" placeholder="مثلاً: شرکت خاک و بتن ۲"/>
@@ -79,32 +84,18 @@
       <span class="muted">برای هر مهندس یک ردیف اضافه کنید.</span>
     </div>
 
-    <div class="row-actions" style="margin-top:14px">
-      <button class="btn" id="notifyAdminBtn" type="button">📲 اطلاع به ادمین (واتساپ)</button>
-      <button class="btn ghost" id="downloadSummaryBtn" type="button">⬇️ دانلود خلاصه</button>
-      <span class="muted">پس از پر کردن فرم، اطلاع بده یا خلاصه را دانلود و برای ادمین ارسال کن.</span>
+    <!-- درخواست لینک دسترسی از ادمین (در حالت قفل) -->
+    <div class="row-actions" style="margin-top:10px">
+      <button class="btn ghost" id="requestAccessBtn" type="button">📩 درخواست لینک دسترسی از ادمین</button>
+      <span class="muted">این پیام فقط شامل نام شرکت و تاریخ پروانه است (بدون ارقام).</span>
     </div>
-
-    <!-- سوییچ نوع پیام واتساپ -->
-    <div class="row-actions" style="margin-top:8px">
-      <label class="muted" style="display:flex;align-items:center;gap:6px">
-        <input id="sendModeMinimal" type="radio" name="sendMode" value="minimal" checked />
-        ارسال «پیام مختصر» (پیشنهادی) — بدون مبالغ/خروجی
-      </label>
-      <label class="muted" style="display:flex;align-items:center;gap:6px">
-        <input id="sendModeFull" type="radio" name="sendMode" value="full" />
-        ارسال «پیام کامل» (شامل خلاصه و ارقام)
-      </label>
-    </div>
-
-    <div id="waFallback"></div>
   </section>
 
   <!-- 2) Outputs -->
   <section id="outputs">
     <h2>۲) خروجی‌ها</h2>
     <div id="locked" class="locked">
-      🔒 نتایج پس از واریز هزینه کارشناسی و ارسال «لینک تأیید» توسط ادمین باز می‌شود.
+      🔒 نتایج پس از پرداخت و فقط با لینک اختصاصی ادمین (حاوی approve & key) باز می‌شود.
     </div>
 
     <div id="results" style="display:none">
@@ -116,6 +107,13 @@
       <div class="sum"><span>پروانه مدیرعامل:</span> <b id="valCEO">-</b></div>
       <div class="sum"><span>سهمیه‌های مانده:</span> <b id="valQuota">-</b></div>
       <div class="sum" style="border-width:2px;background:#EFF6FF"><span><b>ارزش تقریبی کل</b></span> <b id="valTotal">-</b></div>
+
+      <div class="row-actions" style="margin-top:14px">
+        <button class="btn" id="sendFullToAdmin" type="button">📲 ارسال گزارش کامل به ادمین (واتساپ)</button>
+        <button class="btn ghost" id="downloadReport" type="button">⬇️ دانلود گزارش کامل</button>
+        <span class="muted">ارسال/دانلود پس از باز شدن قفل در دسترس است.</span>
+      </div>
+      <div id="waFallback"></div>
     </div>
   </section>
 
@@ -134,7 +132,8 @@
 
 <script>
 /* ===== پیکربندی ===== */
-const ADMIN_WHATSAPP = "989036860573"; // شماره ادمین به فرمت بین‌المللی بدون +
+const ADMIN_WHATSAPP = "989036860573"; // شماره ادمین
+const WHATSAPP_FALLBACK_MS = 1200;
 
 /* ===== ابزارهای عمومی ===== */
 const fmt = n => (isNaN(n)? "-" : (+n).toLocaleString("fa-IR")+" تومان");
@@ -181,8 +180,8 @@ function compute(){
   tbody.querySelectorAll("tr").forEach(tr=>{
     const role = tr.querySelector(".role").value;
     const months = +tr.querySelector(".months").value || 0;
-    const contract = +tr.querySelector(".contract").value || 0;
-    const contrib = contract * (months/12);
+    theContract = +tr.querySelector(".contract").value || 0;
+    const contrib = theContract * (months/12);
     tr.querySelector(".contrib").textContent = fmt(contrib);
     if(role==="شاغل") sumActive += contrib; else sumBoard += contrib;
   });
@@ -208,25 +207,36 @@ function compute(){
   if(el) el.addEventListener("input", compute);
 });
 
-/* ===== پیام‌های واتساپ ===== */
-function buildSummaryMinimal(){
+/* ===== پیام کوتاه برای درخواست لینک دسترسی ===== */
+function buildAccessRequest(){
   const company = (document.getElementById("companyName").value || "-").trim();
   const license = document.getElementById("licenseDate").value || "-";
   const ts = new Date().toISOString().slice(0,19).replace('T',' ');
   return [
-    "🌐 *rastaval | درخواست بررسی ارزش شرکت*",
-    "",
+    "🌐 *rastaval | درخواست لینک دسترسی*",
     `🏢 *نام شرکت:* ${company}`,
     `🗓️ *اولین پروانه:* ${license}`,
-    "",
-    "ℹ️ این یک پیامِ اطلاع‌رسانی است تا لینک پرداخت/تأیید ارسال شود.",
-    "پس از تأیید پرداخت، لینک فعال‌سازی نتایج برای شرکت شما ارسال می‌گردد.",
-    "—",
-    `🆔 شناسه درخواست: ${ts}`
+    "لطفاً پس از تأیید پرداخت، لینک دسترسی (approve + key) را ارسال کنید.",
+    `🆔 شناسه: ${ts}`
   ].join("\n");
 }
 
-function buildSummaryFull(){
+/* ===== واتساپ عمومی (برای درخواست لینک) ===== */
+document.getElementById("requestAccessBtn").addEventListener("click", ()=>{
+  const text = encodeURIComponent(buildAccessRequest());
+  const phone = ADMIN_WHATSAPP;
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const inApp = /(FBAN|FBAV|Instagram|Line|Twitter|Telegram)/i.test(ua);
+  const deep   = `whatsapp://send?phone=${phone}&text=${text}`;
+  const webApi = `https://api.whatsapp.com/send?phone=${phone}&text=${text}`;
+  const waMe   = `https://wa.me/${phone}?text=${text}`;
+  const a = (url)=>{ const el=document.createElement("a"); el.href=url; el.target="_self"; el.style.display="none"; document.body.appendChild(el); el.click(); el.remove(); };
+  try{ a(deep); setTimeout(()=>a(isIOS||inApp?webApi:waMe),400); }catch(e){ a(webApi); }
+});
+
+/* ===== متن گزارش کامل برای ادمین (بعد از بازشدن قفل) ===== */
+function buildFullReport(){
   const toFa = n => (isNaN(+n) ? "-" : (+n).toLocaleString("fa-IR"));
   const toman = n => (isNaN(+n) ? "-" : toFa(n) + " تومان");
 
@@ -252,7 +262,7 @@ function buildSummaryFull(){
   });
 
   return [
-    "🌐 *rastaval | درخواست بررسی ارزش شرکت*",
+    "🌐 *rastaval | گزارش کامل ارزش نسبی شرکت*",
     "",
     `🏢 *نام شرکت:* ${company}`,
     `🗓️ *اولین پروانه:* ${license}`,
@@ -271,34 +281,27 @@ function buildSummaryFull(){
     "👷‍♂️ *خلاصه مهندسین:*",
     rows.length ? rows.join("\n") : "—",
     "",
-    "📝 *توضیح مهم:* این برآورد کاملاً تجربی و مشورتی است و جنبهٔ رسمی و قانونی ندارد.",
-    "✅ پس از پرداخت کارت‌به‌کارت، لطفاً پیام «پرداخت شد» را بفرستید."
+    "📝 *توضیح مهم:* این برآورد کاملاً تجربی و مشورتی است و جنبهٔ رسمی و قانونی ندارد."
   ].join("\n");
 }
 
-/* ===== ارسال واتساپ: هندلر سه‌مرحله‌ای مقاوم ===== */
-document.getElementById("notifyAdminBtn").addEventListener("click", ()=>{
-  try { compute(); } catch(e) {}
-
-  const mode = document.getElementById("sendModeFull").checked ? "full" : "minimal";
-  const message = mode === "full" ? buildSummaryFull() : buildSummaryMinimal();
-
-  const text  = encodeURIComponent(message);
-  const phone = ADMIN_WHATSAPP;                 // فقط رقم؛ بدون + و 00
-  const ua    = navigator.userAgent || "";
+/* ===== ارسال واتساپ گزارش کامل (بعد از بازشدن قفل) ===== */
+function openWhatsAppWith(text){
+  const encoded = encodeURIComponent(text);
+  const phone = ADMIN_WHATSAPP;
+  const ua = navigator.userAgent || "";
   const isIOS = /iPad|iPhone|iPod/.test(ua);
   const inApp = /(FBAN|FBAV|Instagram|Line|Twitter|Telegram)/i.test(ua);
 
-  const deep   = `whatsapp://send?phone=${phone}&text=${text}`;   // 1) deep link
-  const webApi = `https://api.whatsapp.com/send?phone=${phone}&text=${text}`; // 2) وب API
-  const waMe   = `https://wa.me/${phone}?text=${text}`;            // 3) wa.me
+  const deep   = `whatsapp://send?phone=${phone}&text=${encoded}`;
+  const webApi = `https://api.whatsapp.com/send?phone=${phone}&text=${encoded}`;
+  const waMe   = `https://wa.me/${phone}?text=${encoded}`;
 
   function openViaHiddenLink(url){
     const a=document.createElement("a");
     a.href=url; a.style.display="none"; a.rel="noopener"; a.target="_self";
     document.body.appendChild(a); a.click(); a.remove();
   }
-
   try{
     openViaHiddenLink(deep);
     setTimeout(()=>{ openViaHiddenLink(isIOS || inApp ? webApi : waMe); }, 400);
@@ -306,40 +309,43 @@ document.getElementById("notifyAdminBtn").addEventListener("click", ()=>{
     openViaHiddenLink(webApi);
   }
 
-  // پلان D: لینک پشتیبان روی صفحه + تلاش برای کپی متن
   setTimeout(()=>{
     const host = document.querySelector("#waFallback");
     if(host && !host.dataset.shown){
       host.dataset.shown = "1";
       host.style.cssText = "margin-top:10px;padding:10px;border:1px dashed #cbd5e1;border-radius:8px;background:#fff";
-      host.innerHTML = `<div class="muted">اگر واتساپ باز نشد، این لینک را بزنید: <a href="${webApi}" style="color:#0C69B0">باز کردن واتساپ</a></div>`;
-      try{ navigator.clipboard && navigator.clipboard.writeText(message); }catch(_){}
+      host.innerHTML = `<div class="muted">اگر واتساپ باز نشد، این لینک را بزنید: <a href="${webApi}" style="color:#0C69B0">ارسال در واتساپ</a></div>`;
+      try{ navigator.clipboard && navigator.clipboard.writeText(text); }catch(_){}
     }
-  }, 1200);
-});
+  }, WHATSAPP_FALLBACK_MS);
+}
 
-/* ===== دانلود خلاصه (txt) ===== */
-document.getElementById("downloadSummaryBtn").addEventListener("click", ()=>{
+document.getElementById("sendFullToAdmin").addEventListener("click", ()=>{
   try{ compute(); }catch(e){}
-  const text = (document.getElementById("sendModeFull").checked ? buildSummaryFull() : buildSummaryMinimal());
+  const msg = buildFullReport();
+  openWhatsAppWith(msg);
+});
+document.getElementById("downloadReport").addEventListener("click", ()=>{
+  try{ compute(); }catch(e){}
+  const text = buildFullReport();
   const cn = (document.getElementById("companyName").value || "company").replace(/\s+/g,"_");
   const blob = new Blob([text],{type:"text/plain;charset=utf-8"});
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href=url; a.download=`rastaval_summary_${cn}.txt`; a.click();
+  const a = document.createElement("a"); a.href=url; a.download=`rastaval_report_${cn}.txt`; a.click();
   URL.revokeObjectURL(url);
 });
 
-/* ===== گزینه A: باز شدن خروجی با ?approve=نام‌شرکت ===== */
+/* ===== بازشدن قفل با ?approve=نام‌شرکت&key=توکن ===== */
 (function handleApprove(){
-  const params = new URLSearchParams(location.search);
-  const approve = params.get("approve"); // نام شرکت
-  if(approve){
+  const p = new URLSearchParams(location.search);
+  const approve = p.get("approve");
+  const key = p.get("key"); // وجود هر دو شرط است
+  if(approve && key){
     const cn = document.getElementById("companyName");
     if(cn && !cn.value) cn.value = approve;
     document.getElementById("locked").style.display = "none";
     document.getElementById("results").style.display = "";
     try{ compute(); }catch(e){}
-    // history.replaceState({}, "", location.pathname); // اختیاری: پاک کردن پارامتر از آدرس
   }
 })();
 
