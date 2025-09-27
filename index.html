@@ -122,9 +122,26 @@ function buildSummary(){
   });
   return `درخواست بررسی شرکت\\nنام شرکت: ${company}\\nتاریخ اولین پروانه: ${license}\\nکل تقریبی: ${total}\\n--- مهندسین ---\\n${rows.join("\\n")}`;
 }
-document.getElementById("notifyAdminBtn").onclick=()=>{
-  const t=encodeURIComponent(buildSummary());
-  window.open(`https://wa.me/${ADMIN_WHATSAPP}?text=${t}`,"_blank");
+document.getElementById("notifyAdminBtn").onclick = () => {
+  // مطمئن شو محاسبات به‌روز است
+  try { compute(); } catch (e) {}
+
+  const text = encodeURIComponent(buildSummary());
+
+  // iOS یا مرورگرهای درون‌برنامه‌ای → api.whatsapp.com
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const inApp = /(FBAN|FBAV|Instagram|Line|Twitter|Telegram)/i.test(navigator.userAgent);
+
+  const base = (isIOS || inApp) ? 'https://api.whatsapp.com' : 'https://wa.me';
+  const url  = `${base}/${ADMIN_WHATSAPP}?text=${text}`;
+
+  // به‌جای باز کردن پاپ‌آپ، مستقیم کاربر را به واتساپ ببریم
+  window.location.href = url;
+
+  // نسخهٔ رزرو (اگر مرورگر اجازه نداد)
+  setTimeout(() => {
+    window.location.assign(url);
+  }, 500);
 };
 document.getElementById("downloadSummaryBtn").onclick=()=>{
   const text=buildSummary();
